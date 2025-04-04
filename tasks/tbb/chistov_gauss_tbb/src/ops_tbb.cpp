@@ -1,6 +1,6 @@
 // Copyright 2023 Nesterov Alexander
 #include "tbb/chistov_gauss_tbb/include/ops_tbb.hpp"
-
+#include <algorithm>
 #include <tbb/tbb.h>
 
 bool chistov_gauss_tbb::TestTaskSequential::pre_processing() {
@@ -112,9 +112,12 @@ bool chistov_gauss_tbb::TestTaskOpenMP::post_processing() {
 }
 
  bool chistov_gauss_tbb::TestTaskTBB::pre_processing() {
-  kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) +
-  3); width = static_cast<size_t>(taskData->inputs_count[1]); height =
-  static_cast<size_t>(taskData->inputs_count[2]); result_image = std::vector<double>(width * height, 0); return true;
+  kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) +3); 
+  width = static_cast<size_t>(taskData->inputs_count[1]); 
+  height =static_cast<size_t>(taskData->inputs_count[2]); 
+  result_image = std::vector<double>(width * height, 0);
+
+  return true;
 }
 
  bool chistov_gauss_tbb::TestTaskTBB::validation() {
@@ -137,25 +140,37 @@ bool chistov_gauss_tbb::TestTaskOpenMP::post_processing() {
          taskData->inputs_count[1] >= 3 && taskData->inputs_count[2] >= 3;
 }
 
- bool chistov_gauss_tbb::TestTaskTBB::run() {
-  double sum_inv = 1.0 / (kernel[0] + kernel[1] + kernel[2]);
-  int h = static_cast<int>(height);
-  int w = static_cast<int>(width);
+bool chistov_gauss_tbb::TestTaskTBB::run() {
+  const auto kernel_left = static_cast<double>(kernel[0]);
+  const auto kernel_center = static_cast<double>(kernel[1]);
+  const auto kernel_right = static_cast<double>(kernel[2]);
+  double inv_kernel_sum = 1.0 / (kernel_left + kernel_center + kernel_right);
 
-  tbb::parallel_for(tbb::blocked_range2d<int>(0, h, 0, w), [&](const tbb::blocked_range2d<int> &r) {
-    for (int i = r.rows().begin(); i < r.rows().end(); ++i) {
-      for (int j = r.cols().begin(); j < r.cols().end(); ++j) {
-        double pixel_0 = (j > 0) ? image[i * width + (j - 1)] * kernel[0] : 0.0;
-        double pixel_1 = image[i * width + j] * kernel[1];
-        double pixel_2 = (j < width - 1) ? image[i * width + (j + 1)] * kernel[2] : 0.0;
+  const int num_threads = std::thread::hardware_concurrency();
+  const int min_chunk_size = 512;
+  const int total_height = static_cast<int>(height);
+  const int chunk_size = max(min_chunk_size, total_height / num_threads);
 
-        result_image[i * width + j] = (pixel_0 + pixel_1 + pixel_2) * sum_inv;
+  oneapi::tbb::task_arena arena(num_threads);
+
+  arena.execute([&] {
+    tbb::parallel_for(tbb::blocked_range<int>(0, height, chunk_size), [&](const tbb::blocked_range<int> &range) {
+      for (int row = range.begin(); row < range.end(); ++row) {
+        size_t row_offset = row * width;
+        for (int col = 0; col < width; ++col) {
+          const double left_pixel = (col > 0) ? image[row_offset + (col - 1)] * kernel_left : 0.0;
+          const double center_pixel = image[row_offset + col] * kernel_center;
+          const double right_pixel = (col < width - 1) ? image[row_offset + (col + 1)] * kernel_right : 0.0;
+
+          result_image[row_offset + col] = (left_pixel + center_pixel + right_pixel) * inv_kernel_sum;
+        }
       }
-    }
+    });
   });
 
   return true;
 }
+
 
  bool chistov_gauss_tbb::TestTaskTBB::post_processing() {
   std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
