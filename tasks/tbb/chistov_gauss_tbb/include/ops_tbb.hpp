@@ -9,11 +9,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <tbb/blocked_range.h>
 
 #include "core/task/include/task.hpp"
 
 namespace chistov_gauss_tbb {
-
 class TestTaskTBB : public ppc::core::Task {
  public:
   explicit TestTaskTBB(std::shared_ptr<ppc::core::TaskData> taskData) : Task(std::move(taskData)) {}
