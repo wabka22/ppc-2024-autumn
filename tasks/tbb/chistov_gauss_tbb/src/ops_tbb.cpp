@@ -158,11 +158,11 @@ bool chistov_gauss_tbb::TestTaskTBB::run() {
 
   const int num_threads = std::thread::hardware_concurrency();
   const int min_chunk_size = 256;
-  const int total_height = static_cast<int>(height);
-  const int chunk_size = max(min_chunk_size, total_height / num_threads);
+  const int int_height = static_cast<int>(height);
+  const int chunk_size = max(min_chunk_size, int_height / num_threads);
   oneapi::tbb::task_arena arena(num_threads);
 
-  arena.execute([&] { tbb::parallel_for(tbb::blocked_range<int>(0, total_height, chunk_size), functor); });
+  arena.execute([&] { tbb::parallel_for(tbb::blocked_range<int>(0, int_height, chunk_size), functor); });
 
   return true;
 }
