@@ -89,7 +89,7 @@ bool chistov_gauss_tbb::TestTaskOpenMP::run() {
   int h = static_cast<int>(height);
   int w = static_cast<int>(width);
 
-#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(8)
+#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(1)
   {
 #pragma omp for
     for (int i = 0; i < h; ++i) {
@@ -156,13 +156,10 @@ bool chistov_gauss_tbb::TestTaskTBB::run() {
     }
   };
 
-  const int num_threads = std::thread::hardware_concurrency();
-  const int min_chunk_size = 256;
   const int int_height = static_cast<int>(height);
-  const int chunk_size = max(min_chunk_size, int_height / num_threads);
-  oneapi::tbb::task_arena arena(num_threads);
+  oneapi::tbb::task_arena arena(16);
 
-  arena.execute([&] { tbb::parallel_for(tbb::blocked_range<int>(0, int_height, chunk_size), functor); });
+  arena.execute([&] { tbb::parallel_for(tbb::blocked_range<int>(0, int_height), functor); });
 
   return true;
 }

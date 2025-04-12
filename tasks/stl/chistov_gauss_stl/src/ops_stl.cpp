@@ -90,7 +90,7 @@ bool chistov_gauss_stl::TestTaskOpenMP::run() {
   int h = static_cast<int>(height);
   int w = static_cast<int>(width);
 
-#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(8)
+#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(16)
   {
 #pragma omp for
     for (int i = 0; i < h; ++i) {
@@ -144,35 +144,29 @@ bool chistov_gauss_stl::TestTaskOpenMP::post_processing() {
 bool chistov_gauss_stl::TestTaskSTL::run() {
   double inv_kernel_sum = 1.0 / std::accumulate(kernel.begin(), kernel.end(), 0.0);
 
-  auto process_row = [&](int row) {
-    size_t row_offset = row * width;
-    for (size_t col = 0; col < width; ++col) {
-      double left_pixel = (col > 0) ? image[row_offset + (col - 1)] * kernel[0] : 0.0;
-      double center_pixel = image[row_offset + col] * kernel[1];
-      double right_pixel = (col < width - 1) ? image[row_offset + (col + 1)] * kernel[2] : 0.0;
-
-      result_image[row_offset + col] = (left_pixel + center_pixel + right_pixel) * inv_kernel_sum;
-    }
-  };
-
-  const int num_threads = std::thread::hardware_concurrency();
-  const int min_chunk_size = 256;
+  const int chunk_size = 1024;
   const int int_height = static_cast<int>(height);
-  const int chunk_size = std::max(min_chunk_size, int_height / num_threads);
 
-  std::vector<std::future<void>> futures;
+  std::vector<std::thread> threads;
 
   for (int i = 0; i < int_height; i += chunk_size) {
-    futures.push_back(std::async(std::launch::async, [&, i] {
-      int end_row = std::min(i + chunk_size, int_height);
-      for (int row = i; row < end_row; ++row) {
-        process_row(row);
+    threads.push_back(std::thread([this, i, chunk_size, int_height, inv_kernel_sum] {
+      size_t width_local = this->width;
+
+      for (int row = i; row < std::min(i + chunk_size, int_height); ++row) {
+        size_t row_offset = row * width_local;
+        for (size_t col = 0; col < width_local; ++col) {
+          double left_pixel = (col > 0) ? image[row_offset + (col - 1)] * kernel[0] : 0.0;
+          double center_pixel = image[row_offset + col] * kernel[1];
+          double right_pixel = (col < width_local - 1) ? image[row_offset + (col + 1)] * kernel[2] : 0.0;
+          result_image[row_offset + col] = (left_pixel + center_pixel + right_pixel) * inv_kernel_sum;
+        }
       }
     }));
   }
 
-  for (auto &future : futures) {
-    future.get();
+  for (auto &t : threads) {
+    t.join();
   }
 
   return true;
