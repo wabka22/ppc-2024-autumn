@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <thread>
 #include <future>
+#include <boost/pool/pool_alloc.hpp>
 
 bool chistov_gauss_stl::TestTaskSequential::pre_processing() {
   kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) + 3);
@@ -142,24 +143,23 @@ bool chistov_gauss_stl::TestTaskOpenMP::post_processing() {
 }
 
 bool chistov_gauss_stl::TestTaskSTL::run() {
-  double inv_kernel_sum = 1.0 / std::accumulate(kernel.begin(), kernel.end(), 0.0);
+  const double inv_kernel_sum = 1.0 / std::accumulate(kernel.begin(), kernel.end(), 0.0);
 
-  const int chunk_size = 1024;
-  const int int_height = static_cast<int>(height);
-
+  const size_t chunk_size = 1024;
   std::vector<std::thread> threads;
 
-  for (int i = 0; i < int_height; i += chunk_size) {
-    threads.push_back(std::thread([this, i, chunk_size, int_height, inv_kernel_sum] {
-      size_t width_local = this->width;
 
-      for (int row = i; row < std::min(i + chunk_size, int_height); ++row) {
-        size_t row_offset = row * width_local;
-        for (size_t col = 0; col < width_local; ++col) {
-          double left_pixel = (col > 0) ? image[row_offset + (col - 1)] * kernel[0] : 0.0;
-          double center_pixel = image[row_offset + col] * kernel[1];
-          double right_pixel = (col < width_local - 1) ? image[row_offset + (col + 1)] * kernel[2] : 0.0;
-          result_image[row_offset + col] = (left_pixel + center_pixel + right_pixel) * inv_kernel_sum;
+  for (size_t row_start = 0; row_start < height; row_start += chunk_size) {
+    const size_t row_end = std::min(row_start + chunk_size, height);
+
+    threads.push_back(std::thread([=,this]() {
+      for (size_t row = row_start; row < row_end; ++row) {
+        const size_t row_offset = row * width;
+        for (size_t col = 0; col < width; ++col) {
+          double left = (col > 0) ? image[row_offset + col - 1] * kernel[0] : 0.0;
+          double center = image[row_offset + col] * kernel[1];
+          double right = (col + 1 < width) ? image[row_offset + col + 1] * kernel[2] : 0.0;
+          result_image[row_offset + col] = (left + center + right) * inv_kernel_sum;
         }
       }
     }));
