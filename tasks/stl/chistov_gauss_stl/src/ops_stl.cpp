@@ -144,15 +144,14 @@ bool chistov_gauss_stl::TestTaskOpenMP::post_processing() {
 
 bool chistov_gauss_stl::TestTaskSTL::run() {
   const double inv_kernel_sum = 1.0 / std::accumulate(kernel.begin(), kernel.end(), 0.0);
-
-  const size_t chunk_size = 1024;
+  const size_t num_threads = 4;
+  const size_t chunk_size = (height + num_threads - 1) / num_threads;
   std::vector<std::thread> threads;
-
 
   for (size_t row_start = 0; row_start < height; row_start += chunk_size) {
     const size_t row_end = std::min(row_start + chunk_size, height);
 
-    threads.push_back(std::thread([=,this]() {
+    std::thread t([=, this]() {
       for (size_t row = row_start; row < row_end; ++row) {
         const size_t row_offset = row * width;
         for (size_t col = 0; col < width; ++col) {
@@ -162,7 +161,9 @@ bool chistov_gauss_stl::TestTaskSTL::run() {
           result_image[row_offset + col] = (left + center + right) * inv_kernel_sum;
         }
       }
-    }));
+    });
+
+    threads.push_back(std::move(t));
   }
 
   for (auto &t : threads) {
@@ -171,6 +172,7 @@ bool chistov_gauss_stl::TestTaskSTL::run() {
 
   return true;
 }
+
 
  bool chistov_gauss_stl::TestTaskSTL::post_processing() {
   std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
