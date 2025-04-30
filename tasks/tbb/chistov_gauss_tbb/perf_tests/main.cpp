@@ -34,8 +34,8 @@
  }  // namespace chistov_gauss_tbb_test
 
  TEST(SEQ, test_task_run) {
-   const size_t width = 5000;
-   const size_t height = 5000;
+   const size_t width = 7000;
+   const size_t height = 7000;
 
    std::vector<double> input_image(width * height, 255.0);
    std::vector<double> output_image(width * height, 0.0);
@@ -82,8 +82,8 @@
  }
 
  TEST(OMP, test_task_run) {
-   const size_t width = 5000;
-   const size_t height = 5000;
+   const size_t width = 7000;
+   const size_t height = 7000;
 
    std::vector<double> input_image(width * height, 255.0);
    std::vector<double> output_image(width * height, 0.0);
@@ -130,8 +130,8 @@
  }
 
 TEST(TBB, test_task_run) {
-  const size_t width = 5000;
-  const size_t height = 5000;
+   const size_t width = 7000;
+  const size_t height = 7000;
 
   std::vector<double> input_image(width * height, 255.0);
   std::vector<double> output_image(width * height, 0.0);
@@ -179,8 +179,8 @@ TEST(TBB, test_task_run) {
 }
 
 TEST(COMPARE, test_task_run) {
-  const size_t width = 5000;
-  const size_t height = 5000;
+  const size_t width = 7000;
+  const size_t height = 7000;
 
   std::vector<double> input_image = chistov_gauss_tbb_test::GenerateRandomImage(width, height);
   std::vector<double> output_image_seq(width * height, 0.0);

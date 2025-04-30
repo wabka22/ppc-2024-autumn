@@ -89,7 +89,7 @@ bool chistov_gauss_tbb::TestTaskOpenMP::run() {
   int h = static_cast<int>(height);
   int w = static_cast<int>(width);
 
-#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(1)
+#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(6)
   {
 #pragma omp for
     for (int i = 0; i < h; ++i) {
@@ -157,7 +157,7 @@ bool chistov_gauss_tbb::TestTaskTBB::run() {
   };
 
   const int int_height = static_cast<int>(height);
-  oneapi::tbb::task_arena arena(16);
+  oneapi::tbb::task_arena arena(6);
 
   arena.execute([&] { tbb::parallel_for(tbb::blocked_range<int>(0, int_height), functor); });
 

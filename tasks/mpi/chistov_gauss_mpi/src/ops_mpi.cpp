@@ -1,11 +1,9 @@
 // Copyright 2023 Nesterov Alexander
-#include "stl/chistov_gauss_stl/include/ops_stl.hpp"
+#include "mpi/chistov_gauss_mpi/include/ops_mpi.hpp"
+#include <boost/mpi.hpp>
 #include <algorithm>
-#include <thread>
-#include <future>
-#include <boost/pool/pool_alloc.hpp>
 
-bool chistov_gauss_stl::TestTaskSequential::pre_processing() {
+bool chistov_gauss_mpi::TestTaskSequential::pre_processing() {
   kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) + 3);
   width = static_cast<size_t>(taskData->inputs_count[1]);
   height = static_cast<size_t>(taskData->inputs_count[2]);
@@ -13,7 +11,7 @@ bool chistov_gauss_stl::TestTaskSequential::pre_processing() {
   return true;
 }
 
-bool chistov_gauss_stl::TestTaskSequential::validation() {
+bool chistov_gauss_mpi::TestTaskSequential::validation() {
   if (taskData->inputs[0] == nullptr || taskData->inputs_count[0] == 0) {
     return false;
   }
@@ -33,7 +31,7 @@ bool chistov_gauss_stl::TestTaskSequential::validation() {
          taskData->inputs_count[1] >= 3 && taskData->inputs_count[2] >= 3;
 }
 
-bool chistov_gauss_stl::TestTaskSequential::run() {
+bool chistov_gauss_mpi::TestTaskSequential::run() {
   double sum = kernel[0] + kernel[1] + kernel[2];
   for (size_t i = 0; i < height; ++i) {
     for (size_t j = 0; j < width; ++j) {
@@ -53,12 +51,12 @@ bool chistov_gauss_stl::TestTaskSequential::run() {
   return true;
 }
 
-bool chistov_gauss_stl::TestTaskSequential::post_processing() {
+bool chistov_gauss_mpi::TestTaskSequential::post_processing() {
   std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
   return true;
 }
 
-bool chistov_gauss_stl::TestTaskOpenMP::pre_processing() {
+bool chistov_gauss_mpi::TestTaskOpenMP::pre_processing() {
   kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) + 3);
   width = static_cast<size_t>(taskData->inputs_count[1]);
   height = static_cast<size_t>(taskData->inputs_count[2]);
@@ -66,7 +64,7 @@ bool chistov_gauss_stl::TestTaskOpenMP::pre_processing() {
   return true;
 }
 
-bool chistov_gauss_stl::TestTaskOpenMP::validation() {
+bool chistov_gauss_mpi::TestTaskOpenMP::validation() {
   if (taskData->inputs[0] == nullptr || taskData->inputs_count[0] == 0) {
     return false;
   }
@@ -86,12 +84,12 @@ bool chistov_gauss_stl::TestTaskOpenMP::validation() {
          taskData->inputs_count[1] >= 3 && taskData->inputs_count[2] >= 3;
 }
 
-bool chistov_gauss_stl::TestTaskOpenMP::run() {
+bool chistov_gauss_mpi::TestTaskOpenMP::run() {
   double sum_inv = 1.0 / (kernel[0] + kernel[1] + kernel[2]);
   int h = static_cast<int>(height);
   int w = static_cast<int>(width);
 
-#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(16)
+#pragma omp parallel firstprivate(sum_inv) shared(w, h) num_threads(1)
   {
 #pragma omp for
     for (int i = 0; i < h; ++i) {
@@ -108,72 +106,109 @@ bool chistov_gauss_stl::TestTaskOpenMP::run() {
   return true;
 }
 
-bool chistov_gauss_stl::TestTaskOpenMP::post_processing() {
+bool chistov_gauss_mpi::TestTaskOpenMP::post_processing() {
   std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
   return true;
 }
 
- bool chistov_gauss_stl::TestTaskSTL::pre_processing() {
-  kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) +3); 
-  width = static_cast<size_t>(taskData->inputs_count[1]); 
-  height =static_cast<size_t>(taskData->inputs_count[2]); 
+bool chistov_gauss_mpi::TestTaskMPI::pre_processing() {
+  internal_order_test();
+
+  kernel.assign(reinterpret_cast<double *>(taskData->inputs[1]), reinterpret_cast<double *>(taskData->inputs[1]) + 3);
+  width = static_cast<size_t>(taskData->inputs_count[1]);
+  height = static_cast<size_t>(taskData->inputs_count[2]);
   result_image = std::vector<double>(width * height, 0);
+  sum_inv = 1.0 / (kernel[0] + kernel[1] + kernel[2]);
 
   return true;
 }
 
- bool chistov_gauss_stl::TestTaskSTL::validation() {
-  if (taskData->inputs[0] == nullptr || taskData->inputs_count[0] == 0) {
-    return false;
-  }
+bool chistov_gauss_mpi::TestTaskMPI::validation() {
+  internal_order_test();
 
   image.assign(reinterpret_cast<double *>(taskData->inputs[0]),
-             reinterpret_cast<double *>(taskData->inputs[0]) + taskData->inputs_count[0]);
+               reinterpret_cast<double *>(taskData->inputs[0]) + taskData->inputs_count[0]);
 
-  for (size_t i = 0; i < taskData->inputs_count[1] * taskData->inputs_count[2]; ++i) {
-    if (image[i] < 0 || image[i] > 255) {
+
+  if (world.rank() == 0) {
+    if (taskData->inputs[0] == nullptr || taskData->inputs_count[0] == 0) {
       return false;
+    }
+
+    for (size_t i = 0; i < taskData->inputs_count[1] * taskData->inputs_count[2]; ++i) {
+      if (image[i] < 0 || image[i] > 255) {
+        return false;
+      }
+    }
+
+    return taskData->inputs_count[0] > 0 &&
+           taskData->inputs_count[0] == taskData->inputs_count[1] * taskData->inputs_count[2] &&
+           taskData->outputs_count[0] == taskData->inputs_count[1] * taskData->inputs_count[2] &&
+           taskData->inputs_count[1] >= 3 && taskData->inputs_count[2] >= 3;
+  }
+
+  return true;
+}
+
+std::pair<int, int> get_row_range(int rank, int total_rows, int num_procs) {
+  int rows_per_proc = total_rows / num_procs;
+  int remaining_rows = total_rows % num_procs;
+  int start = rank * rows_per_proc + std::min(rank, remaining_rows);
+  int end = start + rows_per_proc + (rank < remaining_rows ? 1 : 0);
+  return {start, end};
+}
+
+bool chistov_gauss_mpi::TestTaskMPI::run() {
+  internal_order_test();
+
+  int rank = world.rank();
+  int size = world.size();
+
+  const int h = static_cast<int>(height);
+  const int w = static_cast<int>(width);
+
+  auto [start_row, end_row] = get_row_range(rank, h, size);
+  int local_rows = end_row - start_row;
+
+  std::vector<double> local_result(local_rows * w);
+
+#pragma omp parallel for schedule(static)
+  for (int i = 0; i < local_rows; ++i) {
+    int global_row = start_row + i;
+    const double *row_ptr = &image[global_row * w];
+    double *out_ptr = &local_result[i * w];
+
+#pragma omp simd
+    for (int j = 0; j < w; ++j) {
+      double pixel_0 = (j > 0) ? row_ptr[j - 1] * kernel[0] : 0.0;
+      double pixel_1 = row_ptr[j] * kernel[1];
+      double pixel_2 = (j < w - 1) ? row_ptr[j + 1] * kernel[2] : 0.0;
+      out_ptr[j] = (pixel_0 + pixel_1 + pixel_2) * sum_inv;
     }
   }
 
-  return taskData->inputs_count[0] > 0 &&
-         taskData->inputs_count[0] == taskData->inputs_count[1] * taskData->inputs_count[2] &&
-         taskData->outputs_count[0] == taskData->inputs_count[1] * taskData->inputs_count[2] &&
-         taskData->inputs_count[1] >= 3 && taskData->inputs_count[2] >= 3;
-}
-
-bool chistov_gauss_stl::TestTaskSTL::run() {
-  const double inv_kernel_sum = 1.0 / std::accumulate(kernel.begin(), kernel.end(), 0.0);
-  const size_t num_threads = 6;
-  const size_t chunk_size = (height + num_threads - 1) / num_threads;
-  std::vector<std::thread> threads;
-
-  for (size_t row_start = 0; row_start < height; row_start += chunk_size) {
-    const size_t row_end = std::min(row_start + chunk_size, height);
-
-    std::thread t([=, this]() {
-      for (size_t row = row_start; row < row_end; ++row) {
-        const size_t row_offset = row * width;
-        for (size_t col = 0; col < width; ++col) {
-          double left = (col > 0) ? image[row_offset + col - 1] * kernel[0] : 0.0;
-          double center = image[row_offset + col] * kernel[1];
-          double right = (col + 1 < width) ? image[row_offset + col + 1] * kernel[2] : 0.0;
-          result_image[row_offset + col] = (left + center + right) * inv_kernel_sum;
-        }
-      }
-    });
-
-    threads.push_back(std::move(t));
+  std::vector<int> recvcounts, displs;
+  if (rank == 0) {
+    recvcounts.resize(size);
+    displs.resize(size);
+    for (int i = 0; i < size; ++i) {
+      auto [s_row, e_row] = get_row_range(i, h, size);
+      recvcounts[i] = (e_row - s_row) * w;
+      displs[i] = s_row * w;
+    }
   }
 
-  for (auto &t : threads) {
-    t.join();
-  }
+  boost::mpi::gatherv(world, local_result.data(), local_rows * w, result_image.data(), recvcounts, displs, 0);
 
   return true;
 }
 
- bool chistov_gauss_stl::TestTaskSTL::post_processing() {
-  std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
+
+bool chistov_gauss_mpi::TestTaskMPI::post_processing() {
+  internal_order_test();
+
+  if (world.rank() == 0) {
+    std::copy(result_image.begin(), result_image.end(), reinterpret_cast<double *>(taskData->outputs[0]));
+  }
   return true;
 }
