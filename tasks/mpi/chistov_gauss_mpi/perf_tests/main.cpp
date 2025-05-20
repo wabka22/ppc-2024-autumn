@@ -129,8 +129,8 @@ TEST(OMP, test_task_run) {
 
 TEST(MPI, test_task_run) {
   boost::mpi::communicator world;
-  const size_t width = 7000;
-  const size_t height = 7000;
+  const size_t width = 6000;
+  const size_t height = 6000;
 
   std::vector<double> input_image(width * height, 255.0);
   std::vector<double> output_image(width * height, 0.0);

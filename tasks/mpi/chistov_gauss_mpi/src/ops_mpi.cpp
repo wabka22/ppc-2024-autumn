@@ -1,6 +1,6 @@
 // Copyright 2023 Nesterov Alexander
 #include "mpi/chistov_gauss_mpi/include/ops_mpi.hpp"
-#include <boost/mpi.hpp>
+//#include <boost/mpi.hpp>
 #include <algorithm>
 
 bool chistov_gauss_mpi::TestTaskSequential::pre_processing() {
@@ -172,37 +172,40 @@ bool chistov_gauss_mpi::TestTaskMPI::run() {
 
   std::vector<double> local_result(local_rows * w);
 
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) 
   for (int i = 0; i < local_rows; ++i) {
     int global_row = start_row + i;
     const double *row_ptr = &image[global_row * w];
     double *out_ptr = &local_result[i * w];
 
+    double k0 = kernel[0], k1 = kernel[1], k2 = kernel[2];
+
 #pragma omp simd
     for (int j = 0; j < w; ++j) {
-      double pixel_0 = (j > 0) ? row_ptr[j - 1] * kernel[0] : 0.0;
-      double pixel_1 = row_ptr[j] * kernel[1];
-      double pixel_2 = (j < w - 1) ? row_ptr[j + 1] * kernel[2] : 0.0;
-      out_ptr[j] = (pixel_0 + pixel_1 + pixel_2) * sum_inv;
+      double p0 = (j > 0) ? row_ptr[j - 1] : 0.0;
+      double p1 = row_ptr[j];
+      double p2 = (j < w - 1) ? row_ptr[j + 1] : 0.0;
+      out_ptr[j] = (p0 * k0 + p1 * k1 + p2 * k2) * sum_inv;
     }
   }
 
-  std::vector<int> recvcounts, displs;
   if (rank == 0) {
-    recvcounts.resize(size);
-    displs.resize(size);
-    for (int i = 0; i < size; ++i) {
-      auto [s_row, e_row] = get_row_range(i, h, size);
-      recvcounts[i] = (e_row - s_row) * w;
-      displs[i] = s_row * w;
-    }
-  }
+    result_image.resize(h * w);
 
-  boost::mpi::gatherv(world, local_result.data(), local_rows * w, result_image.data(), recvcounts, displs, 0);
+    std::copy(local_result.begin(), local_result.end(), result_image.begin() + start_row * w);
+
+    for (int i = 1; i < size; ++i) {
+      auto [s_row, e_row] = get_row_range(i, h, size);
+      int rows = e_row - s_row;
+      world.recv(i, 0, &result_image[s_row * w], rows * w);
+    }
+
+  } else {
+    world.send(0, 0, local_result.data(), local_rows * w);
+  }
 
   return true;
 }
-
 
 bool chistov_gauss_mpi::TestTaskMPI::post_processing() {
   internal_order_test();
